@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/index.ts"],
+  "sourcesContent": ["export {\n  framePcm,\n  PCM_SAMPLE_RATE,\n  PCM_FRAME_SAMPLES,\n  PCM_FRAME_MS,\n  PCM_FRAME_BYTES,\n  DEFAULT_MAX_CHUNK_BYTES,\n} from \"./audio.js\";\nexport type { AudioSource, PcmOptions } from \"./audio.js\";\nexport * from \"./codec.js\";\nexport * from \"./runtime.js\";\nexport * from \"./discord.js\";\nexport * from \"./discordjs.js\";\nexport * from \"./dave.js\";\nexport * from \"./rtp.js\";\nexport * from \"./cache.js\";\n"],
+  "mappings": "aAAA,OACE,SACA,gBACA,kBACA,aACA,gBACA,4BACK,aAEP,WAAc,aACd,WAAc,eACd,WAAc,eACd,WAAc,iBACd,WAAc,YACd,WAAc,WACd,WAAc",
+  "names": []
+}
