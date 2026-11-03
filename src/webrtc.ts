@@ -1,5 +1,14 @@
-import { HyperClient, type HyperClientOptions } from "hyperttp";
-import { createWebRtcProtocol, type WebRtcServerHandler } from "@hyperttp/protocol-webrtc";
+import {
+  HyperClient,
+  type HyperClientOptions,
+  type HyperServer,
+  type ServerOptions,
+} from "hyperttp";
+import {
+  createWebRtcProtocol,
+  webRtcControlHandler,
+  type WebRtcServerHandler,
+} from "@hyperttp/protocol-webrtc";
 import { WebRtcTransport, type WebRtcTransportOptions } from "@hyperttp/transport-webrtc";
 import {
   createPcmAudioSource,
@@ -11,6 +20,7 @@ import {
 export interface WebRtcAudioOptions extends PcmAudioOptions {
   /** Media ownership is managed by this adapter, not by transport overrides. */
   transport?: Omit<WebRtcTransportOptions, "localStream" | "disposeLocalStream">;
+  /** Overrides the default connect/stream ACK; other actions default to 501. */
   handler?: WebRtcServerHandler;
   /** Client plugins/configuration; PCM transport ownership stays with this adapter. */
   client?: Omit<HyperClientOptions, "customTransport" | "protocols" | "receivers">;
@@ -26,6 +36,8 @@ export interface WebRtcAudio {
   readonly stream: PcmAudioSubscription["stream"];
   /** Resolves after EOF/close and cleanup; rejects on PCM/encoder failure. */
   readonly done: Promise<void>;
+  /** Configures a DI-enabled server; caller registers signaling and starts it explicitly. */
+  server<S = Record<never, never>>(options: ServerOptions<S>): HyperServer<S>;
   close(): Promise<void>;
 }
 
@@ -71,10 +83,7 @@ export async function createWebRtcAudio(
     core = new HyperClient(
       {
         ...options.client,
-        // Explicit protocol only for a custom receiver; otherwise use auto-discovery.
-        ...(options.handler
-          ? { protocols: [createWebRtcProtocol({ handler: options.handler })] }
-          : {}),
+        protocols: [createWebRtcProtocol({ handler: options.handler ?? webRtcControlHandler })],
       },
       transport,
     );
@@ -111,7 +120,17 @@ export async function createWebRtcAudio(
     );
     // Callers may manage lifetime with close() without observing natural EOF.
     void done.catch(() => {});
-    return { client: core, core, transport, source, stream: client.stream, done, close };
+    return {
+      client: core,
+      core,
+      transport,
+      source,
+      stream: client.stream,
+      done,
+      close,
+      server: <S = Record<never, never>>(serverOptions: ServerOptions<S>) =>
+        ownedCore.server(serverOptions),
+    };
   } catch (error: unknown) {
     await Promise.allSettled([source.close(), core ? core.destroy() : transport?.close()]);
     for (const subscription of subscriptions) subscription.close();

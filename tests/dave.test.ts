@@ -171,6 +171,8 @@ describe("DaveAdapter with the installed native library", () => {
 
   it("processes native proposals, forwards commit+welcome, and waits for execute", () => {
     const { adapter, json, binary } = pending();
+    const prepare = vi.spyOn(DAVESession.prototype, "prepareTransition");
+    const execute = vi.spyOn(DAVESession.prototype, "executeTransition");
     const spy = vi.spyOn(DAVESession.prototype, "processProposals");
     const commit = commitFor(adapter);
     const result = spy.mock.results.at(-1);
@@ -179,9 +181,12 @@ describe("DaveAdapter with the installed native library", () => {
     expect(binary).toHaveBeenLastCalledWith(28, Buffer.concat([commit, result.value.welcome]));
     expect(spy).toHaveBeenLastCalledWith(0, proposals, [user, other]);
     adapter.handleBinary(29, transition(0x1234, commit));
+    expect(prepare).toHaveBeenCalledWith(0x1234, 1);
+    expect(execute).not.toHaveBeenCalled();
     expect(json).toHaveBeenLastCalledWith(23, { transition_id: 0x1234 });
     expect(() => adapter.encrypt(audio)).toThrow(/not ready/);
     adapter.handleJson(22, { transition_id: 0x1234 });
+    expect(execute).toHaveBeenCalledWith(0x1234);
     const encrypted = adapter.encrypt(audio);
     expect(encrypted).not.toEqual(audio);
     expect(encrypted.subarray(-2)).toEqual(Buffer.from([0xfa, 0xfa]));
