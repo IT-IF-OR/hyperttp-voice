@@ -5,7 +5,7 @@
 ## Установка и сборка
 
 ```sh
-npm install @hyperttp/voice @hyperttp/types@0.4.2
+npm install @hyperttp/voice @hyperttp/types
 ```
 
 Для работы из репозитория:
@@ -257,3 +257,52 @@ Smoke по умолчанию пропускается. Для реальног�
 - **Live production-тест Discord не проводился.** Unit/fixture-тесты и локальный FFmpeg bridge не подтверждают совместимость с реальным сервером, переходами участников и длительными reconnect-сценариями.
 
 Версии, источники и границы проверок: [`docs/research.md`](docs/research.md).
+
+## WebRTC-сервер с DI
+
+```ts
+import { createWebRtcAudio } from "@hyperttp/voice/webrtc";
+
+// input: raw PCM s16le, 48 kHz, stereo; требуется FFmpeg/libopus.
+const audio = await createWebRtcAudio(input, {
+  transport: { iceServers: [] }, // Только локальная разработка; production требует STUN/TURN.
+});
+const server = audio.server({
+  host: "127.0.0.1",
+  port: 3001,
+  services: { auth, rooms },
+});
+server.webrtc.signal("/audio/signal", {
+  authorize: ({ request, services }) => services.auth.authorize(request),
+  handler: ({ request, services }) => {
+    services.rooms.recordAction(request.action);
+    return { status: 200, payload: { listening: true } };
+  },
+});
+await server.start();
+// Получатель: client.webrtc.receive("webrtc://127.0.0.1:3001/audio/signal")
+// При завершении: await audio.close();
+```
+
+`audio.server(options)` — типизированная обёртка над `audio.client.server(options)`.
+Регистрация не открывает порт. `authorize` проверяет signaling POST/DELETE до
+создания peer и подписки на аудио; проверяйте также владельца сессии. Прикладной
+`handler` вызывается позже, через DataChannel, и не заменяет авторизацию.
+Services принадлежат приложению: `audio.close()` их не уничтожает.
+
+Протокол теперь регистрируется явно: без `options.handler` используется
+`webRtcControlHandler` (ACK для connect/stream, 501 для остальных действий).
+Существующий `options.handler` сохраняет приоритет при низкоуровневом listen;
+handler в `server.webrtc.signal()` переопределяет его для конкретного listener.
+`audio.client`, устаревший alias `audio.core`, `stream`, `done`, `close()` сохранены.
+Закрытие listener не останавливает общий источник; `audio.close()` закрывает
+источник, клиент и принадлежащие ему listeners. EOF/ошибка/abort также инициируют
+очистку. Для отправки проверяйте `response.ok`, затем ожидайте `audio.done`.
+
+Проверки из корня монорепозитория:
+
+```sh
+node scripts/workspaces.ts build voice
+node scripts/workspaces.ts typecheck voice
+node scripts/workspaces.ts test voice
+```

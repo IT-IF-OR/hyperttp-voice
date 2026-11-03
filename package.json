@@ -1,6 +1,6 @@
 {
   "name": "@hyperttp/voice",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "Modular PCM/Opus audio runtime with Discord DAVE and Hyperttp WebRTC adapters",
   "license": "MIT",
   "author": "dirold2",
@@ -32,14 +32,10 @@
     }
   },
   "scripts": {
-    "build": "tsc && esbuild 'dist/**/*.js' --outdir=dist --allow-overwrite --minify --sourcemap && d-build",
     "benchmark": "npm run build && node benchmarks/audio.ts",
     "compare:discord": "npm run build && node examples/compare-discord.ts",
     "typecheck:compare": "tsc --ignoreConfig --noEmit --strict --exactOptionalPropertyTypes --noUncheckedIndexedAccess --skipLibCheck --target ES2022 --module NodeNext --moduleResolution NodeNext --types node examples/compare-discord.ts",
     "smoke:discord": "npm run build && node scripts/discord-smoke.ts",
-    "dist": "d-dist",
-    "deploy": "npm run build && npm run dist",
-    "pub": "d-publish",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint src",
     "lint:fix": "oxlint src --fix",
@@ -47,33 +43,33 @@
     "format:check": "oxfmt src --check",
     "test": "vitest run",
     "dev": "tsx src/index.ts",
-    "prepublishOnly": "npm run build"
+    "build": "node ../../scripts/build-package.ts",
+    "clean": "node --input-type=module -e 'import { rmSync } from \"node:fs\"; rmSync(\"dist\", { recursive: true, force: true });'"
   },
   "dependencies": {
-    "@hyperttp/protocol-webrtc": "^0.1.1",
-    "@hyperttp/transport-webrtc": "^0.1.1",
-    "@snazzah/davey": "^0.1.12",
+    "@hyperttp/protocol-webrtc": "^0.2.1",
+    "@hyperttp/transport-webrtc": "^0.3.0",
+    "@snazzah/davey": "^0.2.0",
     "discord-api-types": "0.38.57",
     "hcacher": "^0.3.0",
     "hemmiter": "^0.1.0",
-    "hyperttp": "^0.6.2",
+    "hyperttp": "^0.7.4",
     "libopus-node": "^1.3.1"
   },
   "devDependencies": {
-    "@dirold2/dev-tools": "^1.1.3",
     "@discordjs/voice": "0.19.2",
-    "@types/bun": "latest",
+    "@types/bun": "^1.4.4",
     "@types/node": "^26.6.6",
-    "@vitest/coverage-v8": "^5.0.5",
-    "discord.js": "14.27.0",
-    "esbuild": "latest",
-    "oxfmt": "^0.75.0",
+    "@vitest/coverage-v8": "^5.1.0",
+    "discord.js": "14.28.0",
+    "esbuild": "^0.28.2",
+    "oxfmt": "^0.76.0",
     "oxlint": "^1.90.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.5"
+    "vitest": "^5.1.0"
   },
   "peerDependencies": {
-    "@hyperttp/types": "v0.4.2"
+    "@hyperttp/types": "^0.5.4"
   },
   "engines": {
     "node": ">=26"

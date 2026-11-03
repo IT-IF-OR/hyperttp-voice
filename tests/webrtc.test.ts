@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { HyperClient } from "hyperttp";
 import { createWebRtcProtocol } from "@hyperttp/protocol-webrtc";
 import { WebRtcTransport } from "@hyperttp/transport-webrtc";
@@ -145,7 +145,7 @@ describe("real FFmpeg PCM integration (requires libopus)", () => {
         expect(audio.transport).toBeInstanceOf(WebRtcTransport);
         expect(await audio.client.getProtocolName("webrtc")).toBe("WebRtcProtocol");
         expect(audio.core.webrtc.stream).toBeTypeOf("function");
-        expect(await audio.core.getTransportName()).toBe("WebRtcTransport");
+        expect(await audio.core.getTransportName()).toBe(audio.transport.constructor.name);
         await audio.done;
         expect(packets).toBeGreaterThan(0);
         expect(track.stopped).toBe(true);
@@ -245,6 +245,79 @@ describe("real FFmpeg PCM integration (requires libopus)", () => {
       expect(audio.stream.getTracks().every((track) => track.stopped)).toBe(true);
     } finally {
       await audio.close();
+    }
+  });
+});
+
+describe("voice server facade", () => {
+  pcmTest(
+    "injects services, forwards early authorization and closes the listener with audio",
+    async () => {
+      const pending = pendingInput();
+      const audio = await createWebRtcAudio(pending.input);
+      const close = vi.fn(async () => {});
+      const listen = vi
+        .spyOn(audio.transport, "listen")
+        .mockResolvedValue({ close } as Awaited<ReturnType<WebRtcTransport["listen"]>>);
+      const services = { token: "secret", events: [] as string[] };
+      try {
+        const server = audio.server({ port: 0, services });
+        server.webrtc.signal("/audio/signal", {
+          authorize: ({ request, services }) => request.headers.authorization === services.token,
+          handler: ({ request, services }) => {
+            services.events.push(request.action);
+            return { payload: { acknowledged: true } };
+          },
+        });
+        expect(listen).not.toHaveBeenCalled();
+        await server.start();
+        const options = listen.mock.calls[0]![0];
+        expect(options.signaling?.path).toBe("/audio/signal");
+        const request = {
+          protocol: "webrtc" as const,
+          method: "POST",
+          url: "/audio/signal",
+          headers: { authorization: "secret" },
+          body: { action: "stream" },
+        };
+        expect(await options.signaling?.authorize?.(request)).toBe(true);
+        expect(await options.signaling?.authorize?.({ ...request, headers: {} })).toBe(false);
+        const response = await options.onRequest!(request);
+        expect(response.status).toBe(200);
+        expect(services.events).toEqual(["stream"]);
+        await audio.close();
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(pending.cancelled).toBe(true);
+      } finally {
+        await audio.close();
+        listen.mockRestore();
+      }
+    },
+  );
+
+  pcmTest("uses default control ACK for media-only listeners", async () => {
+    const pending = pendingInput();
+    const audio = await createWebRtcAudio(pending.input);
+    const listen = vi
+      .spyOn(audio.transport, "listen")
+      .mockResolvedValue({ close: async () => {} } as Awaited<
+        ReturnType<WebRtcTransport["listen"]>
+      >);
+    try {
+      await audio.client.listen({ protocol: "webrtc", port: 0 });
+      const receive = listen.mock.calls[0]![0].onRequest!;
+      const request = {
+        protocol: "webrtc" as const,
+        method: "POST",
+        url: "/signal",
+        headers: {},
+        body: { action: "stream" },
+      };
+      expect((await receive(request)).status).toBe(200);
+      expect((await receive({ ...request, body: { action: "datachannel" } })).status).toBe(501);
+    } finally {
+      await audio.close();
+      listen.mockRestore();
     }
   });
 });

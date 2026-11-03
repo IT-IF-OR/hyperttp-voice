@@ -30,6 +30,7 @@ export class DaveAdapter {
   private failed = false;
   private session: DAVESession | undefined;
   private epochVersion = 0;
+  private keysPrepared = false;
   private readonly members = new Set<string>();
   private readonly transitions = new Map<number, number>();
   private awaitingExecute: number | undefined;
@@ -43,7 +44,7 @@ export class DaveAdapter {
       this.configured &&
       (this.currentVersion === 0
         ? !this.requireDave
-        : this.awaitingExecute === undefined && this.session?.ready === true)
+        : this.keysPrepared && this.awaitingExecute === undefined && this.session?.ready === true)
     );
   }
 
@@ -119,6 +120,7 @@ export class DaveAdapter {
     }
   }
   private initialize(version: number): void {
+    this.keysPrepared = false;
     this.transitions.clear();
     this.awaitingExecute = undefined;
     this.epochVersion = version;
@@ -149,6 +151,7 @@ export class DaveAdapter {
     if (version === undefined) throw new Error(`Unknown DAVE transition ${id}`);
     if (this.awaitingExecute !== undefined && this.awaitingExecute !== id)
       throw new Error("DAVE transition does not match pending MLS keys");
+    this.session?.executeTransition(id);
     this.currentVersion = version;
     this.transitions.delete(id);
     if (this.awaitingExecute === id) this.awaitingExecute = undefined;
@@ -187,6 +190,7 @@ export class DaveAdapter {
             if (version > 0 && version !== this.epochVersion)
               throw new Error("DAVE transition has no prepared epoch");
             if (this.transitions.has(id)) throw new Error("Duplicate DAVE transition");
+            this.session?.prepareTransition(id, version);
             this.transitions.set(id, version);
             if (id === 0) this.execute(id);
             else this.sendJson(VoiceOpcodes.DaveTransitionReady, { transition_id: id });
@@ -225,9 +229,11 @@ export class DaveAdapter {
         const id = payload.readUInt16BE(0);
         // Only native commit/welcome failures trigger protocol recovery, never transport errors.
         try {
-          if (op === VoiceOpcodes.DaveMlsAnnounceCommitTransition)
-            session.processCommit(payload.subarray(2));
-          else session.processWelcome(payload.subarray(2));
+          if (op === VoiceOpcodes.DaveMlsAnnounceCommitTransition) {
+            if (!session.processCommit(payload.subarray(2))) {
+              throw new Error("DAVE commit did not prepare a transition");
+            }
+          } else session.processWelcome(payload.subarray(2), [...this.members]);
         } catch {
           this.transitions.clear();
           this.awaitingExecute = undefined;
@@ -237,11 +243,13 @@ export class DaveAdapter {
           this.initialize(this.epochVersion);
           return true;
         }
+        session.prepareTransition(id, this.epochVersion);
+        this.keysPrepared = true;
         this.transitions.set(id, this.epochVersion);
         if (id === 0) this.execute(id);
         else {
-          // Davey activates sender keys during processCommit/processWelcome. Do not send
-          // with those keys before the gateway executes the corresponding transition.
+          // Native keys are prepared but must not be used before the gateway executes
+          // the corresponding transition.
           this.awaitingExecute = id;
           this.sendJson(VoiceOpcodes.DaveTransitionReady, { transition_id: id });
         }
@@ -257,7 +265,7 @@ export class DaveAdapter {
       if (this.requireDave) throw new Error("DAVE is required");
       return packet;
     }
-    if (this.awaitingExecute !== undefined || !this.session?.ready)
+    if (!this.keysPrepared || this.awaitingExecute !== undefined || !this.session?.ready)
       throw new Error("DAVE encryption is not ready");
     return this.guard(() => this.session!.encryptOpus(packet));
   }

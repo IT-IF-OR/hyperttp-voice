@@ -13,7 +13,8 @@ export async function streamPcmToPeer(
     const audio = await createWebRtcAudio(input, signal ? { signal } : {});
     try {
       // Реальный HyperClient; signaling/ICE и доступность получателя настраивает приложение.
-      await audio.client.webrtc.stream(peerUrl, audio.stream);
+      const response = await audio.client.webrtc.stream(peerUrl, audio.stream);
+      if (!response.ok) throw new Error(`WebRTC stream failed: ${response.status}`);
       await audio.done;
     } finally {
       await audio.close();
