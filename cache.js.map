@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/cache.ts"],
+  "sourcesContent": ["import { CacheManager } from \"hcacher\";\n\nexport interface MetadataCacheOptions {\n  ttl?: number;\n  maxSize?: number;\n}\n\n/** Bounded TTL cache for metadata only; never stores live media or session keys. */\nexport function createMetadataCache<T>(options: MetadataCacheOptions = {}): CacheManager<T> {\n  const ttl = options.ttl ?? 60_000;\n  const maxSize = options.maxSize ?? 128;\n  if (!Number.isFinite(ttl) || ttl <= 0) throw new RangeError(\"ttl must be finite and positive\");\n  if (!Number.isSafeInteger(maxSize) || maxSize <= 0)\n    throw new RangeError(\"maxSize must be a positive safe integer\");\n  return new CacheManager<T>({ ttl, maxSize, touchOnGet: true });\n}\n"],
+  "mappings": "aAAA,OAAS,gBAAAA,MAAoB,UAQvB,gBAAU,oBAAuBC,EAAgC,CAAA,EAAE,CACvE,MAAMC,EAAMD,EAAQ,KAAO,IACrBE,EAAUF,EAAQ,SAAW,IACnC,GAAI,CAAC,OAAO,SAASC,CAAG,GAAKA,GAAO,EAAG,MAAM,IAAI,WAAW,iCAAiC,EAC7F,GAAI,CAAC,OAAO,cAAcC,CAAO,GAAKA,GAAW,EAC/C,MAAM,IAAI,WAAW,yCAAyC,EAChE,OAAO,IAAIH,EAAgB,CAAE,IAAAE,EAAK,QAAAC,EAAS,WAAY,EAAI,CAAE,CAC/D",
+  "names": ["CacheManager", "options", "ttl", "maxSize"]
+}
