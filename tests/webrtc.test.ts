@@ -258,7 +258,7 @@ describe("voice server facade", () => {
       const close = vi.fn(async () => {});
       const listen = vi
         .spyOn(audio.transport, "listen")
-        .mockResolvedValue({ close } as Awaited<ReturnType<WebRtcTransport["listen"]>>);
+        .mockResolvedValue({ close, webrtc: audio.transport });
       const services = { token: "secret", events: [] as string[] };
       try {
         const server = audio.server({ port: 0, services });
@@ -300,9 +300,7 @@ describe("voice server facade", () => {
     const audio = await createWebRtcAudio(pending.input);
     const listen = vi
       .spyOn(audio.transport, "listen")
-      .mockResolvedValue({ close: async () => {} } as Awaited<
-        ReturnType<WebRtcTransport["listen"]>
-      >);
+      .mockResolvedValue({ close: async () => {}, webrtc: audio.transport });
     try {
       await audio.client.listen({ protocol: "webrtc", port: 0 });
       const receive = listen.mock.calls[0]![0].onRequest!;
