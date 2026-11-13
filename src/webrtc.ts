@@ -26,12 +26,22 @@ export interface WebRtcAudioOptions extends PcmAudioOptions {
   client?: Omit<HyperClientOptions, "customTransport" | "protocols" | "receivers">;
 }
 
+export interface WebRtcAudioDiagnostics {
+  /** Active PCM subscriptions owned by this adapter. */
+  readonly subscriptions: number;
+  /** Active server-session PCM subscriptions. */
+  readonly serverSubscriptions: number;
+  /** Whether the client-side stream currently owns a PCM subscription. */
+  readonly clientSubscribed: boolean;
+}
+
 export interface WebRtcAudio {
   readonly client: HyperClient;
   /** @deprecated Use client. Kept as a migration alias. */
   readonly core: HyperClient;
   readonly transport: WebRtcTransport;
   readonly source: PcmAudioSource;
+  readonly diagnostics: WebRtcAudioDiagnostics;
   /** Pass to client.webrtc.stream(peerUrl, stream) for client-side sending. */
   readonly stream: PcmAudioSubscription["stream"];
   /** Resolves after EOF/close and cleanup; rejects on PCM/encoder failure. */
@@ -59,13 +69,25 @@ export async function createWebRtcAudio(
   const serverSubscriptions = new Map<string, PcmAudioSubscription>();
   let core: HyperClient | undefined;
   let transport: WebRtcTransport | undefined;
+  let clientSubscription: PcmAudioSubscription | undefined;
+  let clientStream: PcmAudioSubscription["stream"] | undefined;
+  let closed = false;
+
+  const getClientSubscription = (): PcmAudioSubscription => {
+    if (clientSubscription) return clientSubscription;
+    const subscription = source.subscribe();
+    clientSubscription = subscription;
+    clientStream = subscription.stream;
+    subscriptions.add(subscription);
+    return subscription;
+  };
 
   try {
-    const client = source.subscribe();
-    subscriptions.add(client);
     transport = new WebRtcTransport({
       ...options.transport,
       localStream: (sessionId) => {
+        const existing = serverSubscriptions.get(sessionId);
+        if (existing) return existing.stream;
         const subscription = source.subscribe();
         subscriptions.add(subscription);
         serverSubscriptions.set(sessionId, subscription);
@@ -91,6 +113,7 @@ export async function createWebRtcAudio(
     const ownedCore = core;
     let closePromise: Promise<void> | undefined;
     const close = (): Promise<void> => {
+      closed = true;
       closePromise ??= (async () => {
         try {
           // Stop input/FFmpeg immediately, even while peer shutdown is pending.
@@ -101,6 +124,8 @@ export async function createWebRtcAudio(
           if (errors.length) throw new AggregateError(errors, "WebRTC audio cleanup failed");
         } finally {
           for (const subscription of subscriptions) subscription.close();
+          if (clientSubscription) clientStream = clientSubscription.stream;
+          clientSubscription = undefined;
           subscriptions.clear();
           serverSubscriptions.clear();
         }
@@ -125,15 +150,31 @@ export async function createWebRtcAudio(
       core,
       transport,
       source,
-      stream: client.stream,
+      get diagnostics(): WebRtcAudioDiagnostics {
+        return {
+          subscriptions: subscriptions.size,
+          serverSubscriptions: serverSubscriptions.size,
+          clientSubscribed: clientSubscription !== undefined,
+        };
+      },
+      get stream(): PcmAudioSubscription["stream"] {
+        if (clientStream) return clientStream;
+        if (closed) throw new Error("WebRTC audio is closed");
+        return getClientSubscription().stream;
+      },
       done,
       close,
       server: <S = Record<never, never>>(serverOptions: ServerOptions<S>) =>
         ownedCore.server(serverOptions),
     };
   } catch (error: unknown) {
+    closed = true;
     await Promise.allSettled([source.close(), core ? core.destroy() : transport?.close()]);
     for (const subscription of subscriptions) subscription.close();
+    if (clientSubscription) clientStream = clientSubscription.stream;
+    clientSubscription = undefined;
+    subscriptions.clear();
+    serverSubscriptions.clear();
     throw error;
   }
 }

@@ -127,6 +127,27 @@ describe("real FFmpeg PCM integration (requires libopus)", () => {
     15_000,
   );
 
+  pcmTest("does not subscribe client PCM until stream is requested", async () => {
+    const pending = pendingInput();
+    const audio = await createWebRtcAudio(pending.input);
+    try {
+      expect(audio.diagnostics).toEqual({
+        subscriptions: 0,
+        serverSubscriptions: 0,
+        clientSubscribed: false,
+      });
+      const stream = audio.stream;
+      expect(stream.getAudioTracks()).toHaveLength(1);
+      expect(audio.diagnostics).toEqual({
+        subscriptions: 1,
+        serverSubscriptions: 0,
+        clientSubscribed: true,
+      });
+    } finally {
+      await audio.close();
+    }
+  });
+
   pcmTest(
     "exposes a configured core and client stream, then cleans up on EOF",
     async () => {
@@ -168,13 +189,24 @@ describe("real FFmpeg PCM integration (requires libopus)", () => {
     const pending = pendingInput();
     const audio = await createWebRtcAudio(pending.input);
     try {
+      const stream = audio.stream;
+      expect(audio.diagnostics).toEqual({
+        subscriptions: 1,
+        serverSubscriptions: 0,
+        clientSubscribed: true,
+      });
       const closing = audio.close();
       expect(audio.close()).toBe(closing);
       await closing;
       await audio.done;
       expect(pending.cancelled).toBe(true);
       expect(pending.input.locked).toBe(false);
-      expect(audio.stream.getTracks().every((track) => track.stopped)).toBe(true);
+      expect(stream.getTracks().every((track) => track.stopped)).toBe(true);
+      expect(audio.diagnostics).toEqual({
+        subscriptions: 0,
+        serverSubscriptions: 0,
+        clientSubscribed: false,
+      });
     } finally {
       await audio.close();
     }
@@ -211,10 +243,11 @@ describe("real FFmpeg PCM integration (requires libopus)", () => {
       },
     });
     const audio = await createWebRtcAudio(input);
+    const stream = audio.stream;
     try {
       await expect(audio.done).rejects.toBe(reason);
       expect(input.locked).toBe(false);
-      expect(audio.stream.getTracks().every((track) => track.stopped)).toBe(true);
+      expect(stream.getTracks().every((track) => track.stopped)).toBe(true);
     } finally {
       await audio.close();
     }
@@ -236,13 +269,14 @@ describe("real FFmpeg PCM integration (requires libopus)", () => {
     const controller = new AbortController();
     const pending = pendingInput();
     const audio = await createWebRtcAudio(pending.input, { signal: controller.signal });
+    const stream = audio.stream;
     const reason = new Error("stop audio");
     try {
       controller.abort(reason);
       await expect(audio.done).rejects.toBe(reason);
       expect(pending.cancelled).toBe(true);
       expect(pending.input.locked).toBe(false);
-      expect(audio.stream.getTracks().every((track) => track.stopped)).toBe(true);
+      expect(stream.getTracks().every((track) => track.stopped)).toBe(true);
     } finally {
       await audio.close();
     }

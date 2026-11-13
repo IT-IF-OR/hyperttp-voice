@@ -205,7 +205,7 @@ export class VoiceRuntime extends MiniEmitter<VoiceRuntimeEvents> {
               createOpusCodec({ channels: this.options.channels ?? 2 });
             if (this.options.bitrate !== undefined) this.codec.setBitrate(this.options.bitrate);
           }
-          packet = this.codec.encode(Buffer.from(result.value));
+          packet = this.codec.encode(Buffer.isBuffer(result.value) ? result.value : Buffer.from(result.value));
         }
         await abortable(
           Promise.resolve(this.sink.sendOpus(packet, PCM_FRAME_SAMPLES, signal)),

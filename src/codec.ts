@@ -33,13 +33,13 @@ export class NativeOpusCodec implements OpusCodec {
     const encoder = this.native();
     if (pcm.length !== PCM_FRAME_SAMPLES * this.channels * 2)
       throw new RangeError("PCM must contain exactly 20ms of s16le audio");
-    return Buffer.from(encoder.encode(pcm));
+    return encoder.encode(pcm);
   }
 
   decode(opus: Buffer): Buffer {
     const encoder = this.native();
     if (!opus.length) throw new RangeError("Opus packet must not be empty");
-    return Buffer.from(encoder.decode(opus));
+    return encoder.decode(opus);
   }
 
   setBitrate(bitrate: number): void {
