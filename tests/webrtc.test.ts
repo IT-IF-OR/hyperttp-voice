@@ -283,6 +283,26 @@ describe("real FFmpeg PCM integration (requires libopus)", () => {
   });
 });
 
+describe("REST signaling facade", () => {
+  pcmTest("creates a REST signaling route without opening another listener", async () => {
+    const pending = pendingInput();
+    const audio = await createWebRtcAudio(pending.input);
+    try {
+      const rest = audio.createRestSignaling({
+        signaling: {
+          path: "/api/webrtc/signal",
+          authorize: () => ({ ownerId: "trusted-user" }),
+        },
+        onRequest: () => ({ status: 200, statusText: "OK", headers: {}, body: {} }),
+      });
+      expect(rest.route).toBeTypeOf("function");
+      await rest.signaling.close();
+    } finally {
+      await audio.close();
+    }
+  });
+});
+
 describe("voice server facade", () => {
   pcmTest(
     "injects services, forwards early authorization and closes the listener with audio",

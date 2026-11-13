@@ -1,6 +1,6 @@
 {
   "name": "@hyperttp/voice",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Modular PCM/Opus audio runtime with Discord DAVE and Hyperttp WebRTC adapters",
   "license": "MIT",
   "author": "dirold2",

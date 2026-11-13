@@ -179,6 +179,54 @@ try {
 
 Bridge использует `hyperttp@^0.7.5` (`HyperClient`) и Werift transport. `audio.client` — основной интерфейс; `audio.core` оставлен как deprecated alias того же HyperClient. Настройки и плагины передаются через `createWebRtcAudio(input, { client: { plugins: [...] } })`. Один live PCM source/FFmpeg encoder обслуживает независимые подписки без replay для поздних участников. Подписка для `audio.stream` создаётся лениво — server-only конфигурация не создаёт client `MediaStreamTrack`; `audio.diagnostics` показывает число активных клиентских и server-session подписок. Повторный вызов `localStream` для того же server session повторно использует существующую подписку. FFmpeg отвечает за encoding/pacing; второй кодировщик runtime поверх bridge не нужен. EOF, ошибка input или отмена закрывают адаптер целиком. `close()` идемпотентен; `done` сообщает ошибки источника/cleanup. RTP/RTCP PCM helper используют IPv4 loopback; доступность ICE/STUN/TURN для peers — отдельная ответственность приложения.
 
+### REST signaling в существующем HyperServer
+
+`createWebRtcAudio()` уже владеет единственным `WebRtcTransport` и PCM subscriptions. Чтобы встроить signaling в существующий REST API, не вызывайте `audio.server()` и не создавайте второй transport/listener: создайте REST route через bridge и зарегистрируйте **все четыре** HTTP-метода.
+
+```ts
+import { createWebRtcAudio } from "@hyperttp/voice/webrtc";
+
+const audio = await createWebRtcAudio(pcmInput, {
+  transport: { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] },
+});
+
+const { signaling, route } = audio.createRestSignaling({
+  signaling: {
+    path: "/api/webrtc/signal",
+    // Возвращайте identity из аутентификации Ragu2, не ownerId из body/query.
+    authorize: async (request) => {
+      const user = await authenticateRagu2(request.headers);
+      return user ? { ownerId: user.id, context: { userId: user.id } } : false;
+    },
+  },
+  // Это DataChannel request handler, а не HTTP REST route.
+  onRequest: (request) => {
+    const action =
+      typeof request.body === "object" && request.body !== null && "action" in request.body
+        ? request.body.action
+        : undefined;
+    return action === "connect" || action === "stream"
+      ? { status: 200, statusText: "OK", headers: {}, body: {} }
+      : { status: 501, statusText: "Not Implemented", headers: {}, body: {} };
+  },
+});
+
+// server — уже существующий HyperServer Ragu2, один порт для REST и signaling.
+server.rest.post("/api/webrtc/signal", route);
+server.rest.get("/api/webrtc/signal", route);
+server.rest.patch("/api/webrtc/signal", route);
+server.rest.delete("/api/webrtc/signal", route);
+
+// При shutdown сначала прекращайте HTTP, затем signaling и сам audio bridge.
+await server.close();
+await signaling.close();
+await audio.close();
+```
+
+`authorize` выполняется для `POST`, `GET`, `PATCH` и `DELETE`; owner identity должна быть доверенной и одинаковой для продолжения session. Настройте ограничение размера request body и rate limit до REST route. Нельзя одновременно зарегистрировать этот REST signaling и `server.webrtc.signal()` для одного endpoint. `audio.close()` закрывает transport и активные WebRTC sessions; `signaling.close()` не закрывает REST server.
+
+Передать уже созданный `HyperClient` в PCM bridge сейчас нельзя безопасно: публичный API `HyperClient` фиксирует transport в конструкторе, а bridge обязан создать свой `WebRtcTransport` с `localStream`/`disposeLocalStream` для lifecycle PCM подписок. Для Ragu2 внешний **HyperServer** полностью переиспользуется через `createRestSignaling()` — нового HTTP listener не создаётся.
+
 ## Browser WebRTC
 
 Отдельный browser-safe импорт использует **`@hyperttp/transport-webrtc/browser`** и нативные `RTCPeerConnection`/`MediaStream`, без FFmpeg, Werift и native Opus/DAVE:

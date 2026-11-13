@@ -9,7 +9,14 @@ import {
   webRtcControlHandler,
   type WebRtcServerHandler,
 } from "@hyperttp/protocol-webrtc";
-import { WebRtcTransport, type WebRtcTransportOptions } from "@hyperttp/transport-webrtc";
+import {
+  createWebRtcRestSignalingHandler,
+  WebRtcTransport,
+  type WebRtcRestSignalingRequest,
+  type WebRtcSignalingHandler,
+  type WebRtcTransportOptions,
+} from "@hyperttp/transport-webrtc";
+import type { TransportListenOptions } from "@hyperttp/types";
 import {
   createPcmAudioSource,
   type PcmAudioOptions,
@@ -24,6 +31,17 @@ export interface WebRtcAudioOptions extends PcmAudioOptions {
   handler?: WebRtcServerHandler;
   /** Client plugins/configuration; PCM transport ownership stays with this adapter. */
   client?: Omit<HyperClientOptions, "customTransport" | "protocols" | "receivers">;
+}
+
+export interface WebRtcAudioRestSignaling {
+  /** Must be closed on application shutdown if it outlives audio.close(). */
+  readonly signaling: WebRtcSignalingHandler;
+  /** Register this route for POST, GET, PATCH and DELETE on an existing HyperServer. */
+  readonly route: (request: WebRtcRestSignalingRequest) => Promise<{
+    status: number;
+    headers: Record<string, string>;
+    body?: unknown;
+  }>;
 }
 
 export interface WebRtcAudioDiagnostics {
@@ -46,6 +64,11 @@ export interface WebRtcAudio {
   readonly stream: PcmAudioSubscription["stream"];
   /** Resolves after EOF/close and cleanup; rejects on PCM/encoder failure. */
   readonly done: Promise<void>;
+  /**
+   * Creates REST signaling for an existing HyperServer without opening a listener.
+   * Register route for POST, GET, PATCH and DELETE; close signaling during shutdown.
+   */
+  createRestSignaling(options: TransportListenOptions): WebRtcAudioRestSignaling;
   /** Configures a DI-enabled server; caller registers signaling and starts it explicitly. */
   server<S = Record<never, never>>(options: ServerOptions<S>): HyperServer<S>;
   close(): Promise<void>;
@@ -163,6 +186,10 @@ export async function createWebRtcAudio(
         return getClientSubscription().stream;
       },
       done,
+      createRestSignaling: (signalingOptions: TransportListenOptions): WebRtcAudioRestSignaling => {
+        const signaling = transport!.createSignalingHandler(signalingOptions);
+        return { signaling, route: createWebRtcRestSignalingHandler(signaling) };
+      },
       close,
       server: <S = Record<never, never>>(serverOptions: ServerOptions<S>) =>
         ownedCore.server(serverOptions),
