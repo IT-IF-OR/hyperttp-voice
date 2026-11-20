@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/browser.ts"],
+  "sourcesContent": ["import { WebRtcTransport, type WebRtcTransportOptions } from \"@hyperttp/transport-webrtc/browser\";\n\nexport { WebRtcTransport } from \"@hyperttp/transport-webrtc/browser\";\nexport type {\n  WebRtcTransportOptions,\n  WebRtcTransportRequest,\n  WebRtcTrackEvent,\n  WebRtcSessionView,\n} from \"@hyperttp/transport-webrtc/browser\";\n\nexport interface BrowserWebRtcAudio {\n  readonly transport: WebRtcTransport;\n  /** Closes peer sessions. Caller-owned local MediaStream tracks are not stopped. */\n  close(): Promise<void>;\n}\n\n/**\n * Native browser media path; encoding and pacing belong to the browser.\n * No HyperClient import: hyperttp 0.6.2/core 2.0.5 pull node:http into browser bundles.\n */\nexport function createBrowserWebRtcAudio(options: WebRtcTransportOptions = {}): BrowserWebRtcAudio {\n  const transport = new WebRtcTransport(options);\n  let closing: Promise<void> | undefined;\n  return {\n    transport,\n    close() {\n      closing ??= transport.close();\n      return closing;\n    },\n  };\n}\n"],
+  "mappings": "aAAA,OAAS,mBAAAA,MAAoD,qCAE7D,OAAS,oBAAuB,qCAkB1B,gBAAU,yBAAyBC,EAAkC,CAAA,EAAE,CAC3E,MAAMC,EAAY,IAAIF,EAAgBC,CAAO,EAC7C,IAAIE,EACJ,MAAO,CACL,UAAAD,EACA,OAAK,CACH,OAAAC,IAAYD,EAAU,MAAK,EACpBC,CACT,EAEJ",
+  "names": ["WebRtcTransport", "options", "transport", "closing"]
+}
