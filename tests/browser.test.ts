@@ -13,6 +13,7 @@ describe("browser entry point", () => {
     expect(destroy).toHaveBeenCalledTimes(1);
     await expect(
       audio.transport.execute({
+        protocol: "webrtc",
         url: "webrtc://localhost",
         method: "GET",
         headers: {},

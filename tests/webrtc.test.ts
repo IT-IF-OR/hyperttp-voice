@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import { HyperClient } from "hyperttp";
 import { createWebRtcProtocol } from "@hyperttp/protocol-webrtc";
-import { WebRtcTransport } from "@hyperttp/transport-webrtc";
+import { WebRtcTransport, type WebRtcSignalingHandler } from "@hyperttp/transport-webrtc";
 import { createPcmAudioSource } from "@hyperttp/transport-webrtc/pcm-audio";
 import { createWebRtcAudio } from "../src/webrtc.js";
 
@@ -314,36 +314,71 @@ describe("voice server facade", () => {
         .spyOn(audio.transport, "listen")
         .mockResolvedValue({ close, webrtc: audio.transport });
       const services = { token: "secret", events: [] as string[] };
+      const signaling: WebRtcSignalingHandler = {
+        handle: vi.fn(async () => ({ status: 204, headers: {}, body: "" })),
+        close: vi.fn(async () => {}),
+        closeServerSession: vi.fn(async () => {}),
+      };
+      let signalingOptions: import("@hyperttp/types").TransportListenOptions | undefined;
+      const createSignalingHandler = vi
+        .spyOn(audio.transport, "createSignalingHandler")
+        .mockImplementation((options) => {
+          signalingOptions = options;
+          return signaling;
+        });
       try {
         const server = audio.server({ port: 0, services });
-        server.webrtc.signal("/audio/signal", {
-          authorize: ({ request, services }) => request.headers.authorization === services.token,
-          handler: ({ request, services }) => {
-            services.events.push(request.action);
-            return { payload: { acknowledged: true } };
-          },
-        });
+        expect(
+          server.webrtc.signal("/audio/signal", {
+            transport: audio.transport,
+            authorize: ({ request, services }) => request.headers.authorization === services.token,
+            onRequest: ({ request, services }) => {
+              services.events.push(request.url);
+              return { status: 200, headers: {}, body: { acknowledged: true } };
+            },
+          }),
+        ).toBe(signaling);
+        expect(createSignalingHandler).toHaveBeenCalledTimes(1);
         expect(listen).not.toHaveBeenCalled();
         await server.start();
         const options = listen.mock.calls[0]![0];
-        expect(options.signaling?.path).toBe("/audio/signal");
+        expect(options.signaling).toBeUndefined();
         const request = {
-          protocol: "webrtc" as const,
+          protocol: "rest" as const,
           method: "POST",
           url: "/audio/signal",
           headers: { authorization: "secret" },
           body: { action: "stream" },
         };
-        expect(await options.signaling?.authorize?.(request)).toBe(true);
-        expect(await options.signaling?.authorize?.({ ...request, headers: {} })).toBe(false);
-        const response = await options.onRequest!(request);
-        expect(response.status).toBe(200);
-        expect(services.events).toEqual(["stream"]);
+        expect((await options.onRequest!(request)).status).toBe(204);
+        expect(signaling.handle).toHaveBeenCalledWith(
+          expect.objectContaining({ protocol: "webrtc", method: "POST", url: "/audio/signal" }),
+        );
+        expect(
+          await signalingOptions?.signaling?.authorize?.({
+            protocol: "webrtc",
+            method: "POST",
+            url: "/audio/signal",
+            headers: { authorization: "secret" },
+          }),
+        ).toBe(true);
+        expect(
+          (
+            await signalingOptions?.onRequest?.({
+              protocol: "webrtc",
+              method: "POST",
+              url: "/messages",
+              headers: {},
+            })
+          )?.status,
+        ).toBe(200);
+        expect(services.events).toEqual(["/messages"]);
         await audio.close();
         expect(close).toHaveBeenCalledTimes(1);
         expect(pending.cancelled).toBe(true);
       } finally {
         await audio.close();
+        createSignalingHandler.mockRestore();
         listen.mockRestore();
       }
     },
